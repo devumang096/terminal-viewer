@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal Viewer</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-hover: #1d212a; --border: #262b36;
+    --text: #e6e8ec; --muted: #8b92a1; --accent: #5ac8fa; --green: #4ade80; --amber: #fbbf24;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
+  header { display: flex; align-items: center; gap: 16px; padding: 18px 28px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+  header .count { color: var(--muted); }
+  header input { margin-left: auto; width: 320px; max-width: 40vw; background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font: inherit; outline: none; }
+  header input:focus { border-color: var(--accent); }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(74,222,128,.6); animation: pulse 2s infinite; }
+  .pulse.stale { background: var(--amber); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,.6); } 100% { box-shadow: 0 0 0 8px rgba(74,222,128,0); } }
+  header .hint { color: #5b6270; font-size: 12px; white-space: nowrap; }
+  header .hint kbd { font: inherit; color: var(--muted); }
+  main { padding: 24px 28px; display: flex; flex-direction: column; gap: 28px; }
+  .group h2 { margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; transition: background .15s, border-color .15s; }
+  .card:hover { background: var(--panel-hover); border-color: #343a47; }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card.changed { animation: flash 2.5s ease-out; }
+  @keyframes flash { 0% { background: #1f3a2e; border-color: var(--green); } 100% { background: var(--panel); border-color: var(--border); } }
+  .top { display: flex; align-items: center; gap: 10px; }
+  .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; padding: 3px 8px; border-radius: 6px; background: #2a3444; color: var(--accent); }
+  .badge.iterm2 { background: #1f3a2e; color: #6ee7b7; }
+  .badge.vscode { background: #2b2f4a; color: #a5b4fc; }
+  .badge.long { background: #3b2f1a; color: var(--amber); }
+  .tty { font-family: var(--mono); color: var(--muted); font-size: 12px; margin-left: auto; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #3a4150; }
+  .dot.busy { background: var(--green); }
+  .title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); min-width: 0; }
+  .row .label { color: #5b6270; width: 44px; flex: none; font-family: var(--sans); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .row .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .branch { color: var(--amber); }
+  .idle { color: var(--muted); font-style: italic; }
+  .elapsed { color: #5b6270; flex: none; }
+  .tail { margin: 0; padding: 8px 10px; background: #0b0d11; border-radius: 8px; font: 11.5px/1.4 var(--mono); color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .actions { display: flex; gap: 8px; margin-top: 4px; }
+  button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: #202531; color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); color: #0b1a22; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #7ed4fb; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 0; }
+  #drawer { position: fixed; inset: 0 0 0 auto; width: min(760px, 92vw); background: #0b0d11; border-left: 1px solid var(--border); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; z-index: 3; }
+  #drawer.open { transform: none; }
+  #drawer .bar { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  #drawer .bar .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drawer .bar button { margin-left: auto; }
+  #drawer pre { flex: 1; margin: 0; padding: 16px 18px; overflow: auto; font: 12.5px/1.45 var(--mono); color: #d5d9e0; white-space: pre-wrap; word-break: break-word; }
+  #drawer form { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); }
+  #drawer form input { flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font: 13px var(--mono); outline: none; }
+  #drawer form input:focus { border-color: var(--accent); }
+  #backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; z-index: 2; }
+  #backdrop.open { display: block; }
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); background: #3b1f24; color: #fca5a5; border: 1px solid #7f1d1d; padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 4; max-width: 80vw; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<header>
+  <div class="pulse" id="pulse" title="Refreshes every 2s"></div>
+  <h1>Terminal Viewer</h1>
+  <span class="count" id="count"></span>
+  <input id="search" type="search" placeholder="Filter by title, folder, branch or command" autofocus>
+  <span class="hint"><kbd>↑↓←→</kbd> move · <kbd>Enter</kbd> jump · <kbd>P</kbd> preview · <kbd>/</kbd> search</span>
+</header>
+<main id="groups"></main>
+<div id="backdrop"></div>
+<aside id="drawer">
+  <div class="bar"><span class="badge" id="drawerKind">Preview</span><span class="name" id="drawerName"></span><button id="drawerClose">Close</button></div>
+  <pre id="drawerText"></pre>
+  <form id="commandForm" autocomplete="off">
+    <input id="commandInput" placeholder="Type a command and press Enter to run it in this terminal">
+    <button class="primary" type="submit">Send</button>
+    <button type="button" id="interrupt" title="Send Ctrl+C">Ctrl+C</button>
+  </form>
+</aside>
+<div id="toast"></div>
+<script>
+  const groups = document.getElementById("groups");
+  const search = document.getElementById("search");
+  const count = document.getElementById("count");
+  const pulse = document.getElementById("pulse");
+  const drawer = document.getElementById("drawer");
+  const backdrop = document.getElementById("backdrop");
+  const drawerName = document.getElementById("drawerName");
+  const drawerKind = document.getElementById("drawerKind");
+  const drawerText = document.getElementById("drawerText");
+  const toast = document.getElementById("toast");
+  const commandForm = document.getElementById("commandForm");
+  const commandInput = document.getElementById("commandInput");
+  const interrupt = document.getElementById("interrupt");
+  let toastTimer = null;
+  let home = "";
+  let terminals = [];
+  let previewTty = null;
+  let selectedTty = null;
+  const changedTtys = new Set();
+  const LONG_RUNNING_SECONDS = 300;
+
+  function shortPath(fullPath) {
+    return home && fullPath.startsWith(home) ? "~" + fullPath.slice(home.length) : fullPath;
+  }
+
+  function displayTitle(terminal) {
+    if (terminal.title && terminal.title !== "Terminal") return terminal.title;
+    return terminal.cwd ? terminal.cwd.split("/").pop() || terminal.cwd : terminal.tty;
+  }
+
+  function appClass(terminal) {
+    return terminal.app.toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 4000);
+  }
+
+  function matches(terminal, query) {
+    if (!query) return true;
+    return [terminal.title, terminal.cwd, terminal.branch, terminal.command, terminal.tty].join(" ").toLowerCase().includes(query);
+  }
+
+  function etimeSeconds(etime) {
+    const [days, clock] = etime.includes("-") ? etime.split("-") : ["0", etime];
+    return clock.split(":").reduce((total, part) => total * 60 + Number(part), 0) + Number(days) * 86400;
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[character]));
+  }
+
+  function cardHtml(terminal) {
+    const scriptable = Boolean(terminal.windowId);
+    const longRunning = terminal.command && etimeSeconds(terminal.commandUptime) >= LONG_RUNNING_SECONDS;
+    return `
+      <div class="top">
+        <span class="badge ${appClass(terminal)}">${escapeHtml(terminal.app)}</span>
+        ${longRunning ? `<span class="badge long" title="Command has been running for ${escapeHtml(terminal.commandUptime)}">Long running</span>` : ""}
+        <span class="dot ${terminal.busy || terminal.command ? "busy" : ""}" title="${terminal.busy || terminal.command ? "Running" : "Idle"}"></span>
+        <span class="tty">${escapeHtml(terminal.tty)} · ${escapeHtml(terminal.uptime)}</span>
+      </div>
+      <div class="title" title="${escapeHtml(terminal.title)}">${escapeHtml(displayTitle(terminal))}</div>
+      <div class="row"><span class="label">Folder</span><span class="value" title="${escapeHtml(terminal.cwd)}">${escapeHtml(shortPath(terminal.cwd))}</span></div>
+      ${terminal.branch ? `<div class="row"><span class="label">Branch</span><span class="value branch">${escapeHtml(terminal.branch)}</span></div>` : ""}
+      <div class="row"><span class="label">Running</span><span class="value ${terminal.command ? "" : "idle"}" title="${escapeHtml(terminal.command)}">${terminal.command ? escapeHtml(terminal.command) : "idle at prompt"}</span>${terminal.command ? `<span class="elapsed">${escapeHtml(terminal.commandUptime)}</span>` : ""}</div>
+      ${terminal.tail ? `<pre class="tail">${escapeHtml(terminal.tail)}</pre>` : ""}
+      <div class="actions">
+        <button class="primary" data-focus="${escapeHtml(terminal.tty)}">Jump to</button>
+        <button data-preview="${escapeHtml(terminal.tty)}" ${scriptable ? "" : "disabled title='Preview is only available for Terminal.app and iTerm2 tabs'"}>Preview</button>
+      </div>`;
+  }
+
+  function renderCards(container, items) {
+    items.forEach((terminal, index) => {
+      let card = groups.querySelector(`[data-tty="${terminal.tty}"]`);
+      if (!card) {
+        card = document.createElement("section");
+        card.className = "card";
+        card.dataset.tty = terminal.tty;
+      }
+      const html = cardHtml(terminal);
+      if (card.dataset.html !== html) {
+        card.innerHTML = html;
+        card.dataset.html = html;
+      }
+      if (container.children[index] !== card) container.insertBefore(card, container.children[index] || null);
+      if (changedTtys.has(terminal.tty)) {
+        card.classList.remove("changed");
+        void card.offsetWidth;
+        card.classList.add("changed");
+      }
+    });
+    [...container.children].slice(items.length).forEach((card) => card.remove());
+  }
+
+  function render() {
+    const query = search.value.trim().toLowerCase();
+    const visible = terminals.filter((terminal) => matches(terminal, query));
+    count.textContent = `${terminals.length} terminal${terminals.length === 1 ? "" : "s"}${query ? `, ${visible.length} shown` : ""}`;
+    const empty = groups.querySelector(".empty");
+    if (visible.length === 0 && !empty) groups.insertAdjacentHTML("beforeend", `<div class="empty">${terminals.length ? "No terminals match the filter" : "No terminals found"}</div>`);
+    if (visible.length > 0 && empty) empty.remove();
+    const byApp = new Map();
+    visible.forEach((terminal) => byApp.set(terminal.app, [...(byApp.get(terminal.app) || []), terminal]));
+    [...byApp].forEach(([app, items], groupIndex) => {
+      let group = groups.querySelector(`.group[data-app="${app}"]`);
+      if (!group) {
+        group = document.createElement("section");
+        group.className = "group";
+        group.dataset.app = app;
+        group.innerHTML = "<h2></h2><div class=\"grid\"></div>";
+      }
+      group.querySelector("h2").textContent = `${app} · ${items.length}`;
+      renderCards(group.querySelector(".grid"), items);
+      if (groups.children[groupIndex] !== group) groups.insertBefore(group, groups.children[groupIndex] || null);
+    });
+    [...groups.querySelectorAll(".group")].forEach((group) => { if (!byApp.has(group.dataset.app)) group.remove(); });
+    changedTtys.clear();
+    if (selectedTty && !visible.some((terminal) => terminal.tty === selectedTty)) selectedTty = null;
+  }
+
+  function selectCard(card) {
+    groups.querySelectorAll(".card.selected").forEach((selected) => selected.classList.remove("selected"));
+    selectedTty = card ? card.dataset.tty : null;
+    if (!card) return;
+    card.classList.add("selected");
+    card.scrollIntoView({ block: "nearest" });
+  }
+
+  function handleKey(event) {
+    if (event.key === "Escape") {
+      closePreview();
+      search.blur();
+      return;
+    }
+    if (event.target === commandInput) return;
+    const typing = event.target === search;
+    if (event.key === "/" && !typing) {
+      event.preventDefault();
+      search.focus();
+      return;
+    }
+    const cards = [...groups.querySelectorAll(".card")];
+    const currentIndex = cards.findIndex((card) => card.dataset.tty === selectedTty);
+    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if ((horizontal && !typing) || vertical) {
+      if (cards.length === 0) return;
+      event.preventDefault();
+      search.blur();
+      const columns = currentIndex >= 0 ? getComputedStyle(cards[currentIndex].parentElement).gridTemplateColumns.split(" ").length : 1;
+      const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: columns, ArrowUp: -columns }[event.key];
+      const nextIndex = currentIndex < 0 ? 0 : Math.min(cards.length - 1, Math.max(0, currentIndex + step));
+      selectCard(cards[nextIndex]);
+      return;
+    }
+    if (typing || currentIndex < 0) return;
+    if (event.key === "Enter") focusTerminal(selectedTty);
+    if (event.key.toLowerCase() === "p" && !cards[currentIndex].querySelector("[data-preview]").disabled) openPreview(selectedTty);
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/api/terminals");
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      home = data.home;
+      const previousCommands = new Map(terminals.map((terminal) => [terminal.tty, terminal.command]));
+      terminals = data.terminals;
+      terminals.forEach((terminal) => {
+        if (previousCommands.has(terminal.tty) && previousCommands.get(terminal.tty) !== terminal.command) changedTtys.add(terminal.tty);
+      });
+      pulse.classList.remove("stale");
+      render();
+      if (previewTty) loadPreview(previewTty, false);
+    } catch (error) {
+      console.error("Refresh failed:", error);
+      pulse.classList.add("stale");
+      pulse.title = `Refresh failed: ${error.message}`;
+    }
+  }
+
+  async function focusTerminal(tty) {
+    try {
+      const response = await fetch("/api/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tty }) });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+    } catch (error) {
+      console.error("Jump failed:", error);
+      showToast(`Could not jump to ${tty}: ${error.message}`);
+    }
+  }
+
+  async function loadPreview(tty, scrollToEnd) {
+    try {
+      const response = await fetch(`/api/scrollback?tty=${encodeURIComponent(tty)}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      const atBottom = drawerText.scrollTop + drawerText.clientHeight >= drawerText.scrollHeight - 8;
+      drawerText.textContent = data.text || "(empty)";
+      if (scrollToEnd || atBottom) drawerText.scrollTop = drawerText.scrollHeight;
+    } catch (error) {
+      console.error("Preview failed:", error);
+      drawerText.textContent = `Could not load scrollback: ${error.message}`;
+    }
+  }
+
+  async function sendInput(text, newline) {
+    try {
+      const response = await fetch("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tty: previewTty, text, newline }) });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      setTimeout(() => previewTty && loadPreview(previewTty, true), 300);
+    } catch (error) {
+      console.error("Send failed:", error);
+      showToast(`Could not send to ${previewTty}: ${error.message}`);
+    }
+  }
+
+  function openPreview(tty) {
+    const terminal = terminals.find((item) => item.tty === tty);
+    previewTty = tty;
+    interrupt.disabled = !terminal || terminal.app !== "iTerm2";
+    interrupt.title = interrupt.disabled ? "Ctrl+C is only available for iTerm2" : "Send Ctrl+C";
+    commandInput.value = "";
+    commandInput.focus();
+    drawerKind.textContent = terminal && terminal.app === "iTerm2" ? "Screen" : "Scrollback";
+    drawerName.textContent = terminal ? `${displayTitle(terminal)}  ·  ${tty}` : tty;
+    drawerText.textContent = "Loading…";
+    drawer.classList.add("open");
+    backdrop.classList.add("open");
+    loadPreview(tty, true);
+  }
+
+  function closePreview() {
+    previewTty = null;
+    drawer.classList.remove("open");
+    backdrop.classList.remove("open");
+  }
+
+  groups.addEventListener("click", (event) => {
+    const card = event.target.closest(".card");
+    if (card) selectCard(card);
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.focus) focusTerminal(button.dataset.focus);
+    if (button.dataset.preview) openPreview(button.dataset.preview);
+  });
+  groups.addEventListener("animationend", (event) => event.target.classList.remove("changed"));
+  commandForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = commandInput.value;
+    if (!text) return;
+    commandInput.value = "";
+    sendInput(text, true);
+  });
+  interrupt.addEventListener("click", () => sendInput("\u0003", false));
+  document.getElementById("drawerClose").addEventListener("click", closePreview);
+  backdrop.addEventListener("click", closePreview);
+  document.addEventListener("keydown", handleKey);
+  search.addEventListener("input", render);
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

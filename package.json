@@ -1,0 +1,15 @@
+{
+  "name": "terminal-viewer",
+  "version": "1.0.0",
+  "description": "Local dashboard of every terminal open on this Mac, with git branch, running command and Jump-to",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "keywords": ["terminal", "macos", "developer-tools", "nodejs", "dashboard"],
+  "author": "Umang Devanshu",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/devumang096/terminal-viewer.git" },
+  "engines": { "node": ">=20" }
+}
