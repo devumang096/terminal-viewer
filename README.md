@@ -2,6 +2,8 @@
 
 A local dashboard of every terminal open on your Mac, for developers who keep many tabs and lose track of them.
 
+![terminal-viewer screenshot with demo data](docs/screenshot.png)
+
 ## Features
 
 - Lists Terminal.app tabs, iTerm2 sessions and VS Code integrated terminals in one page
